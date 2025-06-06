@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"os"
 	"time"
@@ -333,7 +332,7 @@ func skipData(reader io.Reader, size int64) (err error) {
 	case io.Seeker:
 		_, err = reader.Seek(size, io.SeekCurrent)
 	default:
-		_, err = io.CopyN(ioutil.Discard, reader, size)
+		_, err = io.CopyN(io.Discard, reader, size)
 	}
 	return
 }

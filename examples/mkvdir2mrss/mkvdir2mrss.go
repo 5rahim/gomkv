@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -359,7 +358,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(*outFile, output, 0644)
+	return os.WriteFile(*outFile, output, 0644)
 }
 
 func scale(data []byte, size int) ([]byte, error) {
