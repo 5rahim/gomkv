@@ -226,7 +226,6 @@ func parseElementAfterID(reader io.Reader, id ElementID, elementOffset int64, cu
 		case uintegerType:
 			if size > 8 || size < 0 {
 				// Skip elements with corrupted/unreasonable sizes
-				fmt.Printf("Skipping integer element with unreasonable size: %d\n", size)
 				if err := skipData(reader, size); err != nil {
 					return -1, err
 				}
@@ -243,7 +242,6 @@ func parseElementAfterID(reader io.Reader, id ElementID, elementOffset int64, cu
 		case integerType:
 			if size > 8 || size < 0 {
 				// Skip elements with corrupted/unreasonable sizes
-				fmt.Printf("Skipping integer element with unreasonable size: %d\n", size)
 				if err := skipData(reader, size); err != nil {
 					return -1, err
 				}
