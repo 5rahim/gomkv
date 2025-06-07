@@ -1,6 +1,7 @@
 package gomkv
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -8,7 +9,34 @@ import (
 )
 
 func readVarInt(reader io.Reader) (int64, int64, bool, error) {
-	return readVarIntRaw(reader, true)
+	return readVarIntWithNullSkip(reader, true)
+}
+
+func readVarIntWithNullSkip(reader io.Reader, doMask bool) (int64, int64, bool, error) {
+	// Skip any null bytes that might be padding
+	skipped := int64(0)
+	buf := make([]byte, 1)
+
+	for {
+		n, err := reader.Read(buf)
+		if err != nil {
+			return -1, -1, false, err
+		}
+		if n == 0 {
+			return -1, -1, false, io.EOF
+		}
+
+		// Skip null bytes (padding)
+		if buf[0] == 0x00 {
+			skipped++
+			continue
+		}
+
+		// Put the non-null byte back and read the varint
+		combinedReader := io.MultiReader(bytes.NewReader(buf), reader)
+		result, count, all1, err := readVarIntRaw(combinedReader, doMask)
+		return result, count + skipped, all1, err
+	}
 }
 
 func readVarIntRaw(reader io.Reader, doMask bool) (int64, int64, bool, error) {

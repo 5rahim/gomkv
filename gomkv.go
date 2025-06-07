@@ -224,66 +224,110 @@ func parseElementAfterID(reader io.Reader, id ElementID, elementOffset int64, cu
 	} else {
 		switch typ {
 		case uintegerType:
-			data, err := readDataN(reader, size, 8)
-			if err != nil {
-				return -1, err
-			}
-			err = handler.HandleInteger(id, int64(binary.BigEndian.Uint64(pad(data, 8))), info)
-			if err != nil {
-				return -1, err
+			if size > 8 || size < 0 {
+				// Skip elements with corrupted/unreasonable sizes
+				fmt.Printf("Skipping integer element with unreasonable size: %d\n", size)
+				if err := skipData(reader, size); err != nil {
+					return -1, err
+				}
+			} else {
+				data, err := readDataN(reader, size, 8)
+				if err != nil {
+					return -1, err
+				}
+				err = handler.HandleInteger(id, int64(binary.BigEndian.Uint64(pad(data, 8))), info)
+				if err != nil {
+					return -1, err
+				}
 			}
 		case integerType:
-			data, err := readDataN(reader, size, 8)
-			if err != nil {
-				return -1, err
-			}
-			err = handler.HandleInteger(id, convertBytesToSignedInt(data), info)
-			if err != nil {
-				return -1, err
+			if size > 8 || size < 0 {
+				// Skip elements with corrupted/unreasonable sizes
+				fmt.Printf("Skipping integer element with unreasonable size: %d\n", size)
+				if err := skipData(reader, size); err != nil {
+					return -1, err
+				}
+			} else {
+				data, err := readDataN(reader, size, 8)
+				if err != nil {
+					return -1, err
+				}
+				err = handler.HandleInteger(id, convertBytesToSignedInt(data), info)
+				if err != nil {
+					return -1, err
+				}
 			}
 		case floatType:
-			data, err := readDataN(reader, size, 8)
-			if err != nil {
-				return -1, err
-			}
-			var value float64
-			if size == 4 {
-				value = float64(math.Float32frombits(binary.BigEndian.Uint32(data)))
-			} else if size == 8 {
-				value = math.Float64frombits(binary.BigEndian.Uint64(data))
+			if size != 4 && size != 8 {
+				// Skip elements with corrupted/unreasonable sizes
+				if err := skipData(reader, size); err != nil {
+					return -1, err
+				}
 			} else {
-				return -1, fmt.Errorf("unexpected float size: %d", size)
-			}
-			err = handler.HandleFloat(id, value, info)
-			if err != nil {
-				return -1, err
+				data, err := readDataN(reader, size, 8)
+				if err != nil {
+					return -1, err
+				}
+				var value float64
+				if size == 4 {
+					value = float64(math.Float32frombits(binary.BigEndian.Uint32(data)))
+				} else if size == 8 {
+					value = math.Float64frombits(binary.BigEndian.Uint64(data))
+				}
+				err = handler.HandleFloat(id, value, info)
+				if err != nil {
+					return -1, err
+				}
 			}
 		case dateType:
-			data, err := readDataN(reader, size, 8)
-			if err != nil {
-				return -1, err
-			}
-			err = handler.HandleDate(id, baseDate.Add(time.Duration(convertBytesToSignedInt(data))), info)
-			if err != nil {
-				return -1, err
+			if size > 8 || size < 0 {
+				// Skip elements with corrupted/unreasonable sizes
+				if err := skipData(reader, size); err != nil {
+					return -1, err
+				}
+			} else {
+				data, err := readDataN(reader, size, 8)
+				if err != nil {
+					return -1, err
+				}
+				err = handler.HandleDate(id, baseDate.Add(time.Duration(convertBytesToSignedInt(data))), info)
+				if err != nil {
+					return -1, err
+				}
 			}
 		case binaryType:
-			data, err := readData(reader, size)
-			if err != nil {
-				return -1, err
-			}
-			err = handler.HandleBinary(id, data, info)
-			if err != nil {
-				return -1, err
+			// For binary data, we need to be more permissive but still reasonable
+			maxBinarySize := int64(100 * 1024 * 1024) // 100MB limit
+			if size > maxBinarySize || size < 0 {
+				if err := skipData(reader, size); err != nil {
+					return -1, err
+				}
+			} else {
+				data, err := readData(reader, size)
+				if err != nil {
+					return -1, err
+				}
+				err = handler.HandleBinary(id, data, info)
+				if err != nil {
+					return -1, err
+				}
 			}
 		case stringType, utf8Type:
-			data, err := readData(reader, size)
-			if err != nil {
-				return -1, err
-			}
-			err = handler.HandleString(id, string(unpadString(data)), info)
-			if err != nil {
-				return -1, err
+			// For strings, impose a reasonable limit
+			maxStringSize := int64(10 * 1024 * 1024) // 10MB limit
+			if size > maxStringSize || size < 0 {
+				if err := skipData(reader, size); err != nil {
+					return -1, err
+				}
+			} else {
+				data, err := readData(reader, size)
+				if err != nil {
+					return -1, err
+				}
+				err = handler.HandleString(id, string(unpadString(data)), info)
+				if err != nil {
+					return -1, err
+				}
 			}
 		}
 		return count, nil
@@ -368,40 +412,11 @@ func unpadString(b []byte) []byte {
 }
 
 func readElementID(reader io.Reader) (ElementID, int64, error) {
-	// rawID, count, _, err := readVarIntRaw(reader, false)
-	// fmt.Println(rawID, count, err)
-	// return ElementID(rawID), count, err
-
-	// Skip any null bytes that might be padding
-	skipped := int64(0)
-	buf := make([]byte, 1)
-
-	for {
-		n, err := reader.Read(buf)
-		if err != nil && !errors.Is(err, io.EOF) {
-			return ElementID(-1), -1, err
-		}
-		if n == 0 {
-			return ElementID(-1), -1, io.EOF
-		}
-
-		// Skip null bytes (padding)
-		if buf[0] == 0x00 {
-			skipped++
-			continue
-		}
-
-		// Put the non-null byte back and read the varint
-		combinedReader := io.MultiReader(bytes.NewReader(buf), reader)
-		rawID, count, _, err := readVarIntRaw(combinedReader, false)
-		if err != nil {
-			// fmt.Printf("readElementID error after skipping %d null bytes: %v\n", skipped, err)
-			return ElementID(-1), -1, err
-		}
-
-		// fmt.Printf("readElementID: skipped %d null bytes, ID=0x%x (%d), count=%d\n", skipped, rawID, rawID, count)
-		return ElementID(rawID), count + skipped, err
+	rawID, count, _, err := readVarIntWithNullSkip(reader, false)
+	if err != nil {
+		return ElementID(-1), -1, err
 	}
+	return ElementID(rawID), count, err
 }
 
 ////////////////////////////////////////////////////////////////////////////////
